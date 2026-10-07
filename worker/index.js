@@ -1,6 +1,8 @@
 import {HUB_DATA,HUB_STYLE,HUB_CLIENT,VOICE_CLIENT,hubHome,hubUpdates,hubAction,hubEvidence,hubModerate,hubRecord} from './hub.js';
 import {handleHubApi,rssResponse,sitemapResponse} from './hub-api.js';
-export const BUILD = '2026-10-07.4';
+import {readJson, rateLimit, sameOrigin, UUID_PATTERN, secureResponse} from './security.js';
+import {receiptShareText, shareReceipt} from './sharing.js';
+export const BUILD = '2026-10-07.5';
 // A bounded best-effort isolate cache; Sites Workers cannot use caches.default.
 const RECEIPT_CACHE = new Map();
 export const NOTICE_AT = '2026-10-06T19:32:35.558Z';
@@ -109,18 +111,10 @@ function accessKey() { return [...crypto.getRandomValues(new Uint8Array(32))].ma
 function publicContribution(row,now) {
   return {id:row.id,address:row.address,firstAt:new Date(row.first_at).toISOString(),days:Math.max(0,Math.floor((now-row.first_at)/DAY_MS)),network:row.network,transactionUrl:NETWORKS[row.network].explorer+'/tx/'+row.tx_hash,partial:!!row.partial,message:row.message,topic:row.topic,createdAt:new Date(row.created_at).toISOString(),updatedAt:new Date(row.updated_at).toISOString()};
 }
-async function boundedJson(request) {
-  if (!request.headers.get('content-type')?.startsWith('application/json')) throw Object.assign(new Error('Use a JSON request.'),{status:415});
-  if (!request.body) throw Object.assign(new Error('A request body is required.'),{status:400});
-  const reader=request.body.getReader();let bytes=0,chunks=[];
-  while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>16384){await reader.cancel();throw Object.assign(new Error('Your message is too long.'),{status:413});}chunks.push(value);}
-  const all=new Uint8Array(bytes);let offset=0;for(const c of chunks){all.set(c,offset);offset+=c.length;}
-  try{return JSON.parse(new TextDecoder().decode(all));}catch{throw Object.assign(new Error('The request could not be read.'),{status:400});}
-}
 export async function handleCommunity(request,env,fetcher=fetch,now=Date.now()) {
   const url=new URL(request.url),db=env?.DB;
   if(!db)return json({error:'The community ledger is temporarily unavailable. Your receipt still works.'},503);
-  const match=/^\/api\/community\/([0-9a-f-]{36})$/.exec(url.pathname);
+  const match=new RegExp('^/api/community/(' + UUID_PATTERN + ')$').exec(url.pathname);
   const creating=request.method==='POST'&&url.pathname==='/api/community';
   if(request.method!=='GET'&&!creating&&!(match&&['PATCH','DELETE'].includes(request.method)))return json({error:'Method not supported.'},405);
   try {
@@ -135,10 +129,11 @@ export async function handleCommunity(request,env,fetcher=fetch,now=Date.now()) 
       const rows=queries[1].results||[],more=rows.length>limit,last=rows[Math.min(rows.length,limit)-1],stats=queries[0].results?.[0]||{wallets:0,days:0};
       return json({schema:'abstract-community/v1',generatedAt:new Date(now).toISOString(),stats:{wallets:Number(stats.wallets),days:Number(stats.days),hours:Number(stats.days)*24},entries:rows.slice(0,limit).map(r=>publicContribution(r,now)),nextCursor:more?last.created_at+':'+last.id:null});
     }
-    if(request.headers.get('origin')!==url.origin||request.headers.get('sec-fetch-site')==='cross-site')return json({error:'Submit from this site.'},403);
-    const body=await boundedJson(request);
+    if(!sameOrigin(request))return json({error:'Submit from this site.'},403);
+    const body=await readJson(request);
     if(!body||typeof body!=='object'||Array.isArray(body))return json({error:'Invalid contribution.'},400);
     if(match) {
+      await rateLimit(request,db,now,'ledger-edit',30);
       if(typeof body.editKey!=='string'||!/^[0-9a-f]{64}$/.test(body.editKey))return json({error:'The private edit key is needed to manage this entry.'},403);
       const hash=await digest(body.editKey),existing=await db.prepare('SELECT id FROM community_contributions WHERE id=? AND edit_hash=?').bind(match[1],hash).first();
       if(!existing)return json({error:'This entry could not be accessed. Check your private edit key.'},403);
@@ -174,8 +169,8 @@ export function makeCardSvg(model) {
   const e = escapeXml, age = elapsed(model.first.timestamp, model.until);
   const stamp = date => new Date(date).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
   const counter = age.afterEndpoint ? 'After notice' : age.days + ' days';
-  const quote = model.tone === 'receipt' ? ['I showed up. This is my receipt.', 'My time matters.'] : ['Please explain the promises, pivots, and shutdown.', 'The community’s time deserves a clear answer.'];
-  const call = model.tag ? '@LucaNetz + @AbstractChain: publish the full timeline.' : 'This community deserves answers and accountability.';
+  const quote = ['I no longer trust @LucaNetz or Pudgy Penguins', 'with my time. Trust isn’t a renewable resource.'];
+  const call = model.tag ? '@LucaNetz + @AbstractChain · Accountability starts here.' : 'My experience. My opinion. My time.';
   const association = model.differentTestnetAddress ? 'Different testnet address supplied; association not verified.' : 'Wallet ownership and AGW identity not verified.';
   const label = model.demo ? 'EXAMPLE — NOT A WALLET LOOKUP' : model.partial ? 'PARTIAL EXPLORER COVERAGE' : 'EXPLORER + RPC CHECKED';
   const green = model.theme === 'ink' ? '#132c24' : '#11df9e', ink = model.theme === 'ink' ? '#ecf5ef' : '#102c23';
@@ -209,7 +204,7 @@ export function makeCardSvg(model) {
 <text x="48" y="595" font-size="11">${e(model.first.hash ? 'TX ' + model.first.hash : 'Sample record — no transaction verified')}</text>
 <text x="48" y="615" font-size="11">${e(model.tag ? 'A call for accountability' : 'Independent community receipt')} · ${e(association)}</text>
 <text x="48" y="634" font-size="11" font-weight="700">${e(model.hostname || 'Abstract Time Receipt')} · ELAPSED TIME, NOT HOURS WORKED · ${model.demo ? 'EXAMPLE' : 'SNAPSHOT'}</text>
-<text x="600" y="661" text-anchor="middle" font-size="24" font-weight="700" letter-spacing="-.5">Our time deserves answers.</text>
+<text x="600" y="661" text-anchor="middle" font-size="24" font-weight="700" letter-spacing="-.5">Never bite a hand that feeds you.</text>
 </g></svg>`;
 }
 
@@ -241,7 +236,7 @@ const STYLE = String.raw`
 
 const CLIENT = String.raw`
 const $ = selector => document.querySelector(selector);
-let result = null, busy = false, theme = 'light', cardUrl = null;
+let result = null, busy = false, theme = 'light', cardUrl = null, shareFile = null, cardVersion = 0;
 function toast(message) { const el = $('#toast'); el.textContent = message; el.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => { el.hidden = true; }, 4000); }
 function setTheme(value) {
   theme = value === 'dark' ? 'dark' : 'light';
@@ -257,12 +252,24 @@ function refreshCard() {
   const receipt = $('#receipt-card'); if (!receipt) return;
   receipt.hidden = !result?.earliest;
   if (cardUrl) { URL.revokeObjectURL(cardUrl); cardUrl = null; }
-  for (const id of ['download','share']) $('#' + id).disabled = !result?.earliest || busy;
+  shareFile = null; const version = ++cardVersion;
+  for (const id of ['download','share','copy-png']) { const button = $('#' + id); if(button) button.disabled = true; }
   if (!result?.earliest) { $('#card').removeAttribute('src'); return; }
   const m = model(), age = elapsed(m.first.timestamp,m.until);
   cardUrl = URL.createObjectURL(new Blob([makeCardSvg(m)],{ type:'image/svg+xml' }));
   $('#card').src = cardUrl;
-  $('#card').alt = age.days + ' whole days, equivalent to ' + (age.days * 24) + ' calendar hours, elapsed since the earliest indexed ' + m.first.network + ' transaction. An angry Retsba beside the time counter. I gave Abstract my time and trust. Please explain the promises, pivots, and shutdown. The community’s time deserves a clear answer. @LucaNetz and @AbstractChain: publish the full timeline. Our time deserves answers. Elapsed calendar time, not hours worked.';
+  $('#card').alt = age.days + ' whole days, equivalent to ' + (age.days * 24) + ' calendar hours, since my first recorded Abstract interaction. Angry Retsba. I gave Abstract my time and trust. I no longer trust @LucaNetz or Pudgy Penguins with my time. Never bite a hand that feeds you. Elapsed calendar time, not hours worked.';
+  const note = $('#export-note'); if(note) note.textContent = 'Preparing your PNG…';
+  png(m).then(blob => {
+    if(version !== cardVersion) return;
+    shareFile = new File([blob], 'abstract-time-receipt.png', {type:'image/png'});
+    for(const id of ['download','share','copy-png']) { const button = $('#' + id); if(button) button.disabled = busy; }
+    if(note) note.textContent = 'On supported devices, choose X in the share menu to include your PNG. Otherwise, the PNG downloads beside your text draft. Calendar time, not hours worked.';
+  }).catch(() => {
+    if(version !== cardVersion) return;
+    $('#share').disabled = busy;
+    if(note) note.textContent = 'Image export is unavailable in this browser. Your X text draft still works.';
+  });
 }
 try { theme = localStorage.getItem('abstract-receipt-theme') === 'dark' ? 'dark' : 'light'; } catch {}
 setTheme(theme);
@@ -342,8 +349,8 @@ $('#wallet-form')?.addEventListener('submit',async event => {
   finally { busy = false; $('#lookup').disabled = false; $('#lookup').textContent = 'Search ↗'; $('#address').disabled = false; evidence(); refreshCard(); showScreen(result ? 'results' : 'search',true); }
 });
 $('#address')?.addEventListener('input',() => $('#address').removeAttribute('aria-invalid'));
-async function png() {
-  const url = URL.createObjectURL(new Blob([makeCardSvg(model())],{type:'image/svg+xml'})), image = new Image();
+async function png(cardModel) {
+  const url = URL.createObjectURL(new Blob([makeCardSvg(cardModel)],{type:'image/svg+xml'})), image = new Image();
   try {
     await new Promise((resolve,reject) => { image.onload = resolve; image.onerror = () => reject(new Error('Card image could not be rendered.')); image.src = url; });
     const canvas = document.createElement('canvas'); canvas.width = 2400; canvas.height = 1350;
@@ -353,16 +360,33 @@ async function png() {
   } finally { URL.revokeObjectURL(url); }
 }
 function downloadBlob(blob,name) { const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url),1000); }
-function shareText() { const m=model(),age=elapsed(m.first.timestamp,m.until);return age.days+" days since my first recorded Abstract interaction.\n\n@LucaNetz @AbstractChain: Please explain the promises, XP expectations, builder commitments and shutdown timeline.\n\nOur time deserves answers."; }
-$('#download')?.addEventListener('click',async () => {
-  if (!result?.earliest) return; $('#download').disabled = true;
-  try { downloadBlob(await png(),'abstract-time-receipt.png'); toast('Card downloaded. Attach it to your X post.'); }
-  catch (e) { toast(e.message); } finally { refreshCard(); }
+function shareText() { const m=model(),age=elapsed(m.first.timestamp,m.until);return receiptShareText(age.days,location.origin); }
+function openTextDraft(text) {
+  const draft = new URL('https://x.com/intent/post');
+  draft.search = new URLSearchParams({text});
+  window.open(draft.toString(),'_blank','noopener,noreferrer');
+}
+$('#download')?.addEventListener('click',() => {
+  if (shareFile) { downloadBlob(shareFile,shareFile.name); toast('PNG downloaded.'); }
 });
-$('#share')?.addEventListener('click',() => {
-  if (!result?.earliest) return; const draft = new URL('https://x.com/intent/post');
-  draft.search = new URLSearchParams({text:shareText(),url:location.origin});
-  window.open(draft.toString(),'_blank','noopener,noreferrer'); toast('X draft opened. Attach your downloaded card before posting.');
+$('#copy-png')?.addEventListener('click',async () => {
+  if (!shareFile) return;
+  try {
+    if(!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') throw Error();
+    await navigator.clipboard.write([new ClipboardItem({'image/png':shareFile})]);
+    toast('PNG copied. Paste it into your X draft.');
+  } catch { toast('This browser cannot copy images. Use Download PNG, then attach the file in X.'); }
+});
+$('#open-text-draft')?.addEventListener('click',() => { if(result?.earliest) openTextDraft(shareText()); });
+$('#share')?.addEventListener('click',async () => {
+  if (!result?.earliest) return;
+  const mode = await shareReceipt({file:shareFile,text:shareText()},navigator,{
+    download:file=>downloadBlob(file,file.name),openDraft:openTextDraft
+  });
+  if(mode==='shared') toast('Receipt sent to your chosen app. Review the draft before posting.');
+  if(mode==='downloaded') toast('X draft opened and PNG downloaded. Attach the file, or use Copy PNG and paste it.');
+  if(mode==='text-only') toast('X text draft opened. PNG export is unavailable in this browser.');
+  if(mode==='failed') { $('#share-fallback').hidden=false; toast('Sharing is unavailable. Open the text draft below, then paste or attach your PNG.'); }
 });
 let communityBusy=false,communityLoaded=false,communityCursor=null,communityExpanded=false,communityStats=null,communityKeys={};
 try{communityKeys=JSON.parse(localStorage.getItem('abstract-community-access')||'{}');if(!communityKeys||typeof communityKeys!=='object'||Array.isArray(communityKeys))communityKeys={};}catch{}
@@ -473,11 +497,11 @@ const CLOCK_MARK = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" 
 const MOON_MARK = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 14.1A8.5 8.5 0 0 1 9.9 3.8a8.5 8.5 0 1 0 10.3 10.3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
 function renderPage(origin,page = 'home') {
   const e = escapeXml;
-  const script = `const HUB_DATA=${JSON.stringify(HUB_DATA).replace(/</g,'\u003c')}; const COMMUNITY_TOPICS=${JSON.stringify(COMMUNITY_TOPICS)}; const NOTICE_AT=${JSON.stringify(NOTICE_AT)}; const NETWORKS=${JSON.stringify(NETWORKS)}; ${validAddress.toString()} ${normalizeUsername.toString()} ${validUsername.toString()} ${escapeXml.toString()} ${elapsed.toString()} const RETSBA_DATA_URI=${JSON.stringify(RETSBA_DATA_URI)}; ${makeCardSvg.toString()} ${CLIENT} ${HUB_CLIENT} ${VOICE_CLIENT}`;
+  const script = `const HUB_DATA=${JSON.stringify(HUB_DATA).replace(/</g,'\u003c')}; const COMMUNITY_TOPICS=${JSON.stringify(COMMUNITY_TOPICS)}; const NOTICE_AT=${JSON.stringify(NOTICE_AT)}; const NETWORKS=${JSON.stringify(NETWORKS)}; ${validAddress.toString()} ${normalizeUsername.toString()} ${validUsername.toString()} ${escapeXml.toString()} ${elapsed.toString()} const RETSBA_DATA_URI=${JSON.stringify(RETSBA_DATA_URI)}; ${makeCardSvg.toString()} ${receiptShareText.toString()} ${shareReceipt.toString()} ${CLIENT} ${HUB_CLIENT} ${VOICE_CLIENT}`;
   const title = ['updates','action','evidence','moderate'].includes(page) ? ({updates:'Latest developments',action:'Community action',evidence:'Evidence desk',moderate:'Review desk'})[page] : page === 'community' ? 'Our time adds up.' : page === 'record' ? 'The accountability record' : page === 'method' ? 'How the receipt works' : 'Your time counts.';
   const home = `<section id="search-screen" class="hero" aria-labelledby="hero-title"><div class="kicker"><span class="dot"></span>ABSTRACT / TIME RECEIPT</div><h1 id="hero-title"><span>Your time.</span><span class="accent">Their accountability.</span></h1><p class="lead">Find your first interaction. Put your days on the record.<br>Ask for an explanation that lasts longer than the roadmap.</p><form id="wallet-form" class="wallet-form"><label class="form-label" for="address">AGW username or wallet address</label><div class="input-row"><input id="address" name="query" placeholder="@username or paste 0x…" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="42" aria-describedby="address-hint status" required><button id="lookup" class="primary" type="submit">Search ↗</button></div><p class="hint form-hint" id="address-hint">Mainnet + testnet · Username or address · No wallet connection</p><div id="status" class="status" role="status" aria-live="polite"></div></form></section>
   <section id="lookup-progress" class="lookup-progress" role="status" aria-live="polite" aria-atomic="true" hidden><span class="lookup-spinner" aria-hidden="true"></span><h2 id="progress-title" tabindex="-1">Finding your first transactions.</h2><p id="progress-copy"></p></section>
-  <section id="results" class="results" aria-label="Your wallet results" hidden><div class="results-head"><button id="new-search" class="search-again" type="button">← New search</button></div><div class="interaction-summary"><h2 id="results-title" tabindex="-1"></h2><p id="days-summary" class="days-summary"></p><p id="hours-summary" class="hours-summary"></p><div id="transaction-links" class="transaction-links"></div><details id="summary-sources" class="summary-sources"><summary>Sources</summary><div id="summary-sources-copy"></div></details></div><div id="receipt-card" hidden><div class="receipt-label"><span>YOUR TIME, ON THE RECORD</span><span>16:9 / YOUR RECEIPT</span></div><div class="card-frame"><img id="card" width="1200" height="675" alt="Your Abstract time receipt"></div><div class="actions"><button id="download" type="button" class="action green" disabled>↓ Download PNG</button><button id="share" type="button" class="action" disabled>𝕏 Open X draft ↗</button></div><p class="export-note">Attach your downloaded card to the X draft.<br>Elapsed calendar time since the earliest verified record, not hours spent.</p></div><p id="no-card" class="empty-result" hidden></p>${communityContent()}</section>`;
+  <section id="results" class="results" aria-label="Your wallet results" hidden><div class="results-head"><button id="new-search" class="search-again" type="button">← New search</button></div><div class="interaction-summary"><h2 id="results-title" tabindex="-1"></h2><p id="days-summary" class="days-summary"></p><p id="hours-summary" class="hours-summary"></p><div id="transaction-links" class="transaction-links"></div><details id="summary-sources" class="summary-sources"><summary>Sources</summary><div id="summary-sources-copy"></div></details></div><div id="receipt-card" hidden><div class="receipt-label"><span>YOUR TIME, ON THE RECORD</span><span>16:9 / YOUR RECEIPT</span></div><div class="card-frame"><img id="card" width="1200" height="675" alt="Your Abstract time receipt"></div><div class="actions"><button id="download" type="button" class="action green" disabled>↓ Download PNG</button><button id="share" type="button" class="action" disabled>𝕏 Draft + PNG ↗</button><button id="copy-png" type="button" class="action" disabled>Copy PNG</button></div><div id="share-fallback" class="actions" hidden><button id="open-text-draft" type="button" class="action">Open X text draft ↗</button></div><p id="export-note" class="export-note">Preparing your PNG…</p></div><p id="no-card" class="empty-result" hidden></p>${communityContent()}</section>`;
   const content = ['updates','action','evidence','moderate'].includes(page) ? `<div class="support-page"><a class="back-link" href="/">← Back to the hub</a>${({updates:hubUpdates,action:hubAction,evidence:hubEvidence,moderate:hubModerate})[page]()}</div>` : page === 'community' ? `<div class="support-page"><a class="back-link" href="/">← Find your receipt</a>${communityContent()}</div>` : page === 'record' ? `<div class="support-page"><a class="back-link" href="/">← Back to wallet search</a>${recordContent()}</div>` : page === 'method' ? `<div class="support-page"><a class="back-link" href="/">← Back to wallet search</a>${methodContent()}</div>` : home + hubHome();
   const gate = page === 'home' ? `<dialog id="theme-gate" class="theme-gate" aria-labelledby="gate-title" aria-describedby="gate-copy"><div class="gate-icon">${MOON_MARK}</div><div class="kicker">THE BIG UPDATE™</div><h2 id="gate-title">After all that waiting…<br><span>dark mode.</span></h2><p id="gate-copy" class="gate-copy">Pick a side.<br>See how many days you’ve backed Abstract.</p><div class="gate-actions"><button type="button" data-choose-theme="dark" autofocus>Finally. Go dark.</button><button type="button" data-choose-theme="light">Keep the lights on.</button></div><p class="gate-foot">Both buttons ship immediately.</p></dialog>` : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f3f6ef"><title>Abstract Accountability — ${e(title)}</title><meta name="description" content="An independent Abstract accountability hub: your wallet receipt, community voices, public statements, builder evidence, and developments worth following."><meta property="og:title" content="Our time deserves answers. — Abstract Accountability"><meta property="og:description" content="Wallet receipts. Community voices. Public statements. Open questions."><meta property="og:type" content="website"><meta property="og:url" content="${e(origin + (page === 'home' ? '' : '/' + page))}"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/rss+xml" title="Abstract Accountability updates" href="/feed.xml"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%2311df9e'/%3E%3Ccircle cx='32' cy='32' r='19' fill='none' stroke='%23163029' stroke-width='5'/%3E%3Cpath d='M32 20v13l9 6' fill='none' stroke='%23163029' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E"><style>${STYLE}${HUB_STYLE}</style></head><body><div id="app" class="wrap"><header class="topbar"><a class="brand" href="/"><span class="mark">${CLOCK_MARK}</span><span>Abstract<small>ACCOUNTABILITY</small></span></a><button id="theme-toggle" class="theme-button" type="button" aria-label="Toggle dark mode" aria-pressed="false">${MOON_MARK}<span id="theme-label">Go dark</span></button><nav class="main-nav" aria-label="Main navigation"><a href="/">My receipt</a><a href="/record">The record</a><a href="/community">Community</a><a href="/updates">Updates</a><a href="/action">Collective action</a><a href="/evidence">Evidence desk</a></nav></header><main>${content}</main><footer class="footer"><span>Independent community tool.<br>Not affiliated with Abstract, Igloo, or Pudgy Penguins.</span><nav aria-label="More information"><a href="/community">Community ↗</a><a href="/updates">Updates ↗</a><a href="/record">The record ↗</a><a href="/method">How it works ↗</a></nav></footer></div>${gate}<div id="toast" class="toast" role="status" aria-live="polite" hidden></div><noscript><p style="padding:24px;text-align:center">Enable JavaScript to search a wallet and download a receipt. <a href="/record">The sourced record</a> and <a href="/method">method</a> remain readable.</p></noscript><script>${script}</script></body></html>`;
@@ -490,8 +514,7 @@ function recordContent() { const entries = sourceEntries(); return `<section id=
 
 function methodContent() { return `<section id="method" class="method" aria-labelledby="method-title"><div><div class="kicker">TRANSPARENT BY DESIGN</div><h2 id="method-title">A timestamp.<br>A receipt.<br>No guesswork.</h2><p>Trust comes from being able to check the claim yourself. Every real receipt links back to its public transaction.</p></div><div><details open><summary>What does the counter actually measure?</summary><p>Whole days between the earliest verified indexed normal transaction involving the supplied address and the UTC lookup snapshot. Incoming transfers and failed included transactions count. The hours conversion multiplies whole days by 24, omitting remaining partial days. It measures elapsed calendar time, not screen time, active days, work, or financial losses. Internal transactions, token transfers, and unindexed activity may be older.</p></details><details><summary>Can I search with my AGW username?</summary><p>Yes. Enter your Abstract Portal username, with or without @, or paste your 0x wallet address into the same field. The public Portal search must return one exact name match (case-insensitive) with a valid wallet address. Similar names, tokens, and apps are never selected as your wallet. The resolved address appears on your downloaded receipt. If the name is missing, ambiguous, or temporarily unavailable, paste the address instead. Usernames resolve mainnet profiles; they do not discover a separate testnet wallet or prove ownership.</p></details><details><summary>How is the first transaction found?</summary><p>The native Abstract explorer is queried from block zero with ascending order. The earliest returned record is cross-checked against the official RPC for chain ID, block timestamp, and transaction inclusion. It is the earliest indexed normal transaction, not guaranteed complete historical activity. <a href="https://docs.abs.xyz/tooling/block-explorers" target="_blank" rel="noopener noreferrer">Official explorer documentation ↗</a></p></details><details><summary>How do mainnet, testnet, and incomplete data work?</summary><p>The wallet form checks the same supplied address on both mainnet and testnet, independently. A username is first resolved to its Portal wallet address. The earliest available verified record is used for the card. Network availability appears under Sources, and incomplete coverage is marked on the card. If you used a different address on testnet, search that address separately. One address cannot discover every wallet you used. Ownership and AGW identity are not verified.</p></details><details><summary>When does the counter stop?</summary><p>The card uses the lookup’s UTC snapshot, shown as “Counted until”. Refreshing or changing the page theme does not silently add hours to a downloaded receipt. Successful lookups may reuse a snapshot cached for up to five minutes.</p></details><details><summary>What happens to my address and receipt?</summary><p>A username search sends the name to Abstract’s public Portal search. Your public address is sent to the explorer and RPC. Successful lookup responses may be cached for up to five minutes; host and upstream request logs may apply. Searching alone does not publish a wallet. Adding to the optional ledger publishes the selected wallet, its receipt, and your message only after your consent. A wallet-free voice publishes only your chosen topic and message. Save your private edit access to update or remove your entries later. Wallet ownership and personal experiences are not verified; no wallet signing or analytics is included. Downloaded PNG files are kept by you. A public post may reveal your wallet address. The X button opens a draft; you decide whether to publish.</p></details><details><summary>What do follows, evidence, and reports store?</summary><p>Topic follows and read state are saved on this browser. Backing a question stores a hashed browser signal, not a verified identity. Evidence submissions store your chosen public source, date, topic, and summary; they are private until owner review. Reports are visible to the owner, who can hide reported community entries. Shared features use this deployment’s database. Submission limits store hashed IP window identifiers and discard old windows after a day; host request logs may still apply. A hidden wallet receipt is excluded from the displayed total.</p></details><details><summary>Why aren’t rumours labelled broken promises?</summary><p>A roadmap claim needs an original statement, date, specific deliverable, and a verifiable outcome. The Phase 2/3 essay contains a vision, not fixed delivery dates. Quantum remains an evidence gap in this review. This independent page makes no claim of affiliation with Abstract, Igloo, or Pudgy Penguins.</p></details></div></section>`; }
 
-export default {
-  async fetch(request, env, ctx) {
+async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
     if(['/api/updates','/api/questions','/api/evidence','/api/reports','/api/moderation','/api/voices'].includes(url.pathname)||url.pathname.startsWith('/api/voices/'))return handleHubApi(request,env);
     if(url.pathname==='/feed.xml'&&request.method==='GET')return rssResponse(request,env);
@@ -499,9 +522,10 @@ export default {
     if(url.pathname==='/robots.txt')return new Response('User-agent: *\nAllow: /\nDisallow: /moderate\nDisallow: /api/\nSitemap: '+(env?.SITE_URL||url.origin)+'/sitemap.xml',{headers:{'content-type':'text/plain'}});
     if(url.pathname==='/api/community'||url.pathname.startsWith('/api/community/'))return handleCommunity(request,env);
     if (request.method !== 'GET' && request.method !== 'HEAD') return json({ error: 'Read-only service. Use GET.' }, 405);
-    if (url.pathname === '/health') return json({ status: 'ok', schema: 'abstract-time-receipt/v1', build: BUILD });
+    if (url.pathname === '/health') return json({ status: 'ok', schema: 'abstract-time-receipt/v1', build: BUILD, sharedStorageConfigured: !!env?.DB });
     if (url.pathname === '/api/lookup') {
       if (request.method === 'HEAD') return new Response(null, { status: 405 });
+      await rateLimit(request,env?.DB,Date.now(),'lookup',60);
       const address = (url.searchParams.get('query') ?? url.searchParams.get('address') ?? '').trim(), testnet = url.searchParams.get('testnet') === '1', old = (url.searchParams.get('testnetAddress') ?? address).trim();
       if (!validAddress(address) || (testnet && !validAddress(old))) return handleLookup(request);
       const canonical = new URL('/api/lookup', url.origin); canonical.search = new URLSearchParams({ address: address.toLowerCase(), testnet: testnet ? '1' : '0', ...(testnet ? { testnetAddress: old.toLowerCase() } : {}) });
@@ -514,5 +538,12 @@ export default {
     }
     if (!['/','/index.html','/record','/method','/community','/updates','/action','/evidence','/moderate'].includes(url.pathname)) return new Response('Not found',{ status:404 });
     return new Response(request.method === 'HEAD' ? null : renderPage(url.origin, ['updates','action','evidence','moderate'].includes(url.pathname.slice(1)) ? url.pathname.slice(1) : url.pathname === '/community' ? 'community' : url.pathname === '/record' ? 'record' : url.pathname === '/method' ? 'method' : 'home'), { headers: { 'content-type':'text/html; charset=utf-8', 'cache-control':'no-store', 'x-content-type-options':'nosniff', 'referrer-policy':'strict-origin-when-cross-origin', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" } });
-  },
-};
+ }
+export default {async fetch(request,env={},ctx={}) {
+  try {
+    if(request.url.length>2048) return secureResponse(json({error:'The request URL is too long.'},414));
+    return await secureResponse(await handleRequest(request,env,ctx));
+  } catch(error) {
+    return secureResponse(json({error:error.status?error.message:'The service is temporarily unavailable.'},error.status||503));
+  }
+}};
