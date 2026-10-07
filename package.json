@@ -19,5 +19,8 @@
   },
   "dependencies": {
     "@libsql/client": "^0.15.15"
+  },
+  "overrides": {
+    "esbuild": "^0.28.2"
   }
 }

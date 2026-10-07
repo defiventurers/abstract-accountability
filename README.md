@@ -2,23 +2,11 @@
 
 A public community hub for wallet receipts, candid experiences, sourced statements, and questions for **@LucaNetz** and **@AbstractChain**. Anyone can use it without a ChatGPT account, wallet connection, or wallet signature.
 
-The receipt asks for an explanation of the promises, pivots, and shutdown. It features the supplied Retsba artwork and ends with **“Our time deserves answers.”** Community satire lives in its own section.
+The receipt expresses the visitor’s loss of trust in Luca Netz and Pudgy Penguins, features the supplied Retsba artwork, and ends with **“Never bite a hand that feeds you.”** The removed satire section is no longer part of the site.
 
 ## Deploy to Vercel
 
 [Import abstract-accountability into Vercel](https://vercel.com/new/import?s=https%3A%2F%2Fgithub.com%2Fdefiventurers%2Fabstract-accountability)
-
-If you received this project as a ZIP, extract it and upload the source to your `defiventurers/abstract-accountability` repository before using the import link. From the extracted project folder, with Git configured for your GitHub account:
-
-```sh
-git init -b main
-git add .
-git commit -m "Build Abstract Accountability community hub"
-git remote add origin https://github.com/defiventurers/abstract-accountability.git
-git push -u origin main
-```
-
-These commands are for the currently empty repository. Alternatively, deploy the extracted folder with the Vercel CLI, using the same server environment variables below.
 
 1. Import this repository. Use the root directory, **Other** framework preset, and **Node.js 24.x**. `vercel.json` already sets the build command, output directory, and routes.
 2. Connect a [Turso database](https://docs.turso.tech/integrations/vercel) to the project, or create a cloud database and add its URL and token as the variables below. This is the persistent storage for the shared community features.
@@ -93,18 +81,37 @@ Messages are plain text, up to 2,500 characters, displayed in full. They are con
 
 IP-based submission limits store hashed window identifiers, not raw IPs. Vercel and upstream services may keep their own request logs. Evidence submissions stay pending until review. Anonymous reports go to the private review desk. The moderation token is held only for the current page session.
 
+## Sharing the receipt
+
+The PNG is prepared as soon as a receipt or theme changes. **Draft + PNG** uses the native share sheet with an actual PNG file where file sharing is supported; select X as the target and review the draft. The device and X app determine available targets and whether they retain both the file and text.
+
+Desktop browsers without file sharing download the PNG and open an editable X text draft. **Copy PNG** lets supported browsers paste the image into X. An X intent URL cannot attach a local file; the app does not pretend otherwise and never publishes a post automatically. No X login or posting credentials are stored.
+
+## Security controls
+
+- HTML uses SHA-256 script hashes in its Content Security Policy, with inline event handlers and embedding blocked. All responses include frame, MIME, referrer, resource, and feature restrictions. Sharing and clipboard writing remain available.
+- Requests use strict same-origin checks, JSON-only bodies capped at 16 KiB, bounded plain text, strict route IDs, and parameterized SQL. Submitted source links are allowlisted and never fetched by the server.
+- Cloud-backed IP limits are atomic and shared across function instances: 60 lookups, 30 edit attempts per entry type, and 60 moderation requests per 15 minutes. Existing posting limits remain in place. A bounded in-process fallback protects lookup when storage is disconnected; it cannot enforce a global distributed limit.
+- Vercel’s trusted forwarded IP is used; caller-supplied platform identity headers are discarded. Private edit capabilities are 256-bit random values stored as hashes. Moderation requires a private server token of at least 32 characters; token digests are compared without an early exit.
+- Secrets stay out of Git and client code. Vercel requires cloud database credentials, rejects local file storage, and refreshes the database client on credential rotation. Private and API responses are not cached.
+- Tests cover injection, origin checks, private edits, key guessing, streamed payloads, security headers, and rate limits. CI audits production and development dependencies. The esbuild override removes the development-server advisory inherited through Drizzle Kit.
+
+These controls reduce risk; they do not guarantee that an app is impossible to exploit. Keep dependencies current, review reported content, rotate a disclosed owner token, and review Vercel traffic and usage. A database must be connected before shared posting can work.
+
 ## Project map and checks
 
 - `worker/index.js`: receipt lookup, share card, wallet ledger, page shell.
-- `worker/hub.js`: hub sections, curated updates, browser interactions, satire.
+- `worker/hub.js`: hub sections, curated updates, and browser interactions.
 - `worker/hub-api.js`: voice wall, evidence, question signals, moderation, RSS.
+- `worker/security.js`: request validation, rate limits, secret comparison, and security headers.
+- `worker/sharing.js`: X copy and native/file-sharing flow.
 - `api/index.js`: public Vercel Web Standard function and routing adapter.
 - `lib/database.js`: Turso/libSQL adapter for the existing SQLite queries.
 - `db/schema.ts`, `drizzle/`: schema and generated, ordered migrations.
 - `scripts/migrate.mjs`: transactional migration runner with applied-file hash checks.
 - `tests/`: receipt verification, identity resolution, consent, persistence, community access, moderation, and browser-script interaction tests.
 
-`npm test` checks the actual SQLite/libSQL adapter as well as mocked upstream explorer/RPC responses. `npm run build` validates all public HTML pages and parses the browser scripts. GitHub Actions runs both on pushes and pull requests. SVG card layouts were rendered in both themes. These checks do not replace a real Vercel deployment smoke test or a full browser/device review.
+`npm test` checks the actual SQLite/libSQL adapter as well as mocked upstream explorer/RPC responses. `npm run build` validates all public HTML pages and parses the browser scripts. GitHub Actions runs tests, build validation, and a dependency audit on pushes and pull requests. SVG card layouts were rendered in both themes. These checks do not replace a real Vercel deployment smoke test or a full browser/device review.
 
 The original `assets/angry-retsba.png` is preserved and embedded in the card so PNG downloads need no external image request. Changing the asset also requires regenerating `RETSBA_DATA_URI` in `worker/index.js`.
 
