@@ -1,17 +1,15 @@
 export function receiptShareText(days, url) {
-  return days.toLocaleString('en-US') + ' days since my first recorded Abstract interaction. I gave @AbstractChain my time and trust.\n\nI no longer trust @LucaNetz or @pudgypenguins with my time. Never bite a hand that feeds you.\n\nSee your first day + days you gave → ' + url + '\nIgloo reports an eight-figure loss. Our prime years cost more—and we can’t buy them back.';
+  return days.toLocaleString('en-US') + ' days since my first @AbstractChain TX.\nI no longer trust @LucaNetz or @pudgypenguins.\n\nNever bite a hand that feeds you.\n\nFind your first day + days you gave: ' + url + '\nOur prime years > Igloo’s reported 8-figure loss.';
 }
 export async function shareReceipt(data, capabilities, actions) {
-  let supportsFiles = false;
-  try { supportsFiles = !!data.file && !!capabilities.share && !!capabilities.canShare?.({files:[data.file]}); } catch {}
-  if (supportsFiles) {
-    try {
-      // Called before any await, preserving the click's transient activation.
-      await capabilities.share({files:[data.file], text:data.text, title:'My Abstract time receipt'});
-      return 'shared';
-    } catch (error) { return error?.name === 'AbortError' ? 'cancelled' : 'failed'; }
-  }
-  if (data.file) actions.download(data.file);
+  // X's public intent endpoint cannot receive a local file attachment. Open
+  // the composer directly during the click, then download the PNG so the user
+  // can attach it before posting. This avoids the native share sheet sending
+  // the user to an arbitrary target or being swallowed by popup blockers.
   actions.openDraft(data.text);
-  return data.file ? 'downloaded' : 'text-only';
+  if (data.file) {
+    actions.download(data.file);
+    return 'downloaded';
+  }
+  return 'text-only';
 }
