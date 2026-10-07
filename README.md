@@ -29,7 +29,7 @@ Without a database, the wallet lookup, card, curated record, and updates still w
 
 | Page | Experience |
 | --- | --- |
-| `/` | Choose dark or light, look up an AGW username or wallet, see a compact green first-interaction summary, download a PNG, and open an X draft. Browse the hub below. |
+| `/` | Choose dark or light, look up an AGW username or wallet, see a compact green first-interaction summary, download a PNG, and open X's composer. Browse the hub below. |
 | `/community` | Voluntarily add a verified wallet receipt to the shared days ledger, or vent on the wallet-free voice wall. Edit or remove personal entries with private access keys. |
 | `/record` | Read the sourced record for the wind-down, funding explanation, Phase 2/3 thesis, Quantum evidence gap, and XP terms. See published community submissions. |
 | `/updates` | Follow topics on this browser, see new items since marking the feed read, and subscribe through RSS. |
@@ -83,9 +83,9 @@ IP-based submission limits store hashed window identifiers, not raw IPs. Vercel 
 
 ## Sharing the receipt
 
-The PNG is prepared as soon as a receipt or theme changes. **Draft + PNG** uses the native share sheet with an actual PNG file where file sharing is supported; select X as the target and review the draft. The device and X app determine available targets and whether they retain both the file and text.
+The PNG is prepared as soon as a receipt or theme changes. **Post on X** opens X's composer directly and downloads the PNG in the same click so you can attach it before posting.
 
-Desktop browsers without file sharing download the PNG and open an editable X text draft. **Copy PNG** lets supported browsers paste the image into X. An X intent URL cannot attach a local file; the app does not pretend otherwise and never publishes a post automatically. No X login or posting credentials are stored.
+**Copy PNG** lets supported browsers paste the image into X. An X intent URL cannot attach a local file automatically; the app downloads it and leaves the final attachment and posting decision to you. No X login or posting credentials are stored.
 
 ## Security controls
 
