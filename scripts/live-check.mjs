@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {writeFile,mkdir} from 'node:fs/promises';
+import {lookupNetwork,makeCardSvg} from '../worker/index.js';
+const address = '0x1fd596c130b90c93f5d9c09008b75ae81476cac0';
+const [mainnet,testnet] = await Promise.all([lookupNetwork('mainnet',address),lookupNetwork('testnet',address)]);
+console.log(JSON.stringify({mainnet:mainnet.status,testnet:testnet.status,first:mainnet.first?.timestamp,hash:mainnet.first?.hash},null,2));
+assert.equal(mainnet.status,'found','Live mainnet API and RPC must agree');
+assert.equal(mainnet.first.hash,'0x35ce9da66426a10f4d4edf2b52b4d02cc34d63fd04fc19bd6ab89ee65aee37af');
+assert.equal(testnet.status,'no-records','Public address has no indexed testnet transactions');
+const testnetAddress = '0xC3aF235C41376a8C07d9DB5c0d06eC5Cc1C52a3e';
+const testnetFound = await lookupNetwork('testnet',testnetAddress);
+assert.equal(testnetFound.status,'found','Live testnet API and RPC must agree');
+assert.equal(testnetFound.first.hash,'0xe49789005f64ca4b28ab7142c5e8a7b61f914edb46e6aaf65dc112d0ec084d6a');
+console.log(JSON.stringify({testnetFound:testnetFound.status,first:testnetFound.first.timestamp,hash:testnetFound.first.hash},null,2));
+await mkdir('/workspace/scratch/baa1c60c5d1f/qa',{recursive:true});
+for (const theme of ['mint','ink']) await writeFile('/workspace/scratch/baa1c60c5d1f/qa/card-'+theme+'.svg',makeCardSvg({first:mainnet.first,address,until:new Date().toISOString(),theme,tag:true,hostname:'abstract-time-receipt.fill987987.chatgpt.site'}));
+console.log('Live explorer and RPC checks passed; card SVGs emitted for visual QA.');
