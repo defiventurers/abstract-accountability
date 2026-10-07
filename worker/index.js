@@ -264,11 +264,11 @@ function refreshCard() {
     if(version !== cardVersion) return;
     shareFile = new File([blob], 'abstract-time-receipt.png', {type:'image/png'});
     for(const id of ['download','share','copy-png']) { const button = $('#' + id); if(button) button.disabled = busy; }
-    if(note) note.textContent = 'On supported devices, choose X in the share menu to include your PNG. Otherwise, the PNG downloads beside your text draft. Calendar time, not hours worked.';
+    if(note) note.textContent = 'Post on X opens the composer and downloads your PNG. Attach the PNG before posting. Calendar time, not hours worked.';
   }).catch(() => {
     if(version !== cardVersion) return;
     $('#share').disabled = busy;
-    if(note) note.textContent = 'Image export is unavailable in this browser. Your X text draft still works.';
+    if(note) note.textContent = 'Image export is unavailable in this browser. Post on X still opens the composer.';
   });
 }
 try { theme = localStorage.getItem('abstract-receipt-theme') === 'dark' ? 'dark' : 'light'; } catch {}
@@ -364,8 +364,12 @@ function shareText() { const m=model(),age=elapsed(m.first.timestamp,m.until);re
 function openTextDraft(text) {
   const draft = new URL('https://x.com/intent/post');
   draft.search = new URLSearchParams({text});
-  window.open(draft.toString(),'_blank','noopener,noreferrer');
+  const link = document.createElement('a');
+  link.href = draft.toString(); link.target = '_blank'; link.rel = 'noopener noreferrer';
+  document.body.append(link); link.click(); link.remove();
 }
+if ($('#share')) $('#share').textContent = '𝕏 Post on X ↗';
+if ($('#open-text-draft')) $('#open-text-draft').textContent = '𝕏 Post on X ↗';
 $('#download')?.addEventListener('click',() => {
   if (shareFile) { downloadBlob(shareFile,shareFile.name); toast('PNG downloaded.'); }
 });
@@ -383,10 +387,8 @@ $('#share')?.addEventListener('click',async () => {
   const mode = await shareReceipt({file:shareFile,text:shareText()},navigator,{
     download:file=>downloadBlob(file,file.name),openDraft:openTextDraft
   });
-  if(mode==='shared') toast('Receipt sent to your chosen app. Review the draft before posting.');
-  if(mode==='downloaded') toast('X draft opened and PNG downloaded. Attach the file, or use Copy PNG and paste it.');
-  if(mode==='text-only') toast('X text draft opened. PNG export is unavailable in this browser.');
-  if(mode==='failed') { $('#share-fallback').hidden=false; toast('Sharing is unavailable. Open the text draft below, then paste or attach your PNG.'); }
+  if(mode==='downloaded') toast('X opened and PNG downloaded. Attach the PNG before posting.');
+  if(mode==='text-only') toast('X opened. PNG export is unavailable in this browser.');
 });
 let communityBusy=false,communityLoaded=false,communityCursor=null,communityExpanded=false,communityStats=null,communityKeys={};
 try{communityKeys=JSON.parse(localStorage.getItem('abstract-community-access')||'{}');if(!communityKeys||typeof communityKeys!=='object'||Array.isArray(communityKeys))communityKeys={};}catch{}
@@ -537,7 +539,7 @@ async function handleRequest(request, env, ctx) {
       return response;
     }
     if (!['/','/index.html','/record','/method','/community','/updates','/action','/evidence','/moderate'].includes(url.pathname)) return new Response('Not found',{ status:404 });
-    return new Response(request.method === 'HEAD' ? null : renderPage(url.origin, ['updates','action','evidence','moderate'].includes(url.pathname.slice(1)) ? url.pathname.slice(1) : url.pathname === '/community' ? 'community' : url.pathname === '/record' ? 'record' : url.pathname === '/method' ? 'method' : 'home'), { headers: { 'content-type':'text/html; charset=utf-8', 'cache-control':'no-store', 'x-content-type-options':'nosniff', 'referrer-policy':'strict-origin-when-cross-origin', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" } });
+    return new Response(request.method === 'HEAD' ? null : renderPage(url.origin, ['updates','action','evidence','moderate'].includes(url.pathname.slice(1)) ? url.pathname.slice(1) : url.pathname === '/community' ? 'community' : url.pathname === '/record' ? 'record' : url.pathname === '/method' ? 'method' : 'home'), { headers: { 'content-type':'text/html; charset=utf-8', 'cache-control':'no-store' } });
  }
 export default {async fetch(request,env={},ctx={}) {
   try {
