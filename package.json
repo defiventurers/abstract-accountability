@@ -1,0 +1,23 @@
+{
+  "name": "abstract-accountability",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "db:generate": "drizzle-kit generate",
+    "build": "node scripts/build.mjs",
+    "dev": "node --env-file-if-exists=.env.local scripts/dev.mjs",
+    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.10",
+    "drizzle-orm": "0.45.2"
+  },
+  "description": "Public receipts, community voices, and a sourced accountability record for Abstract.",
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.15"
+  }
+}
