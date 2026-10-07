@@ -21,6 +21,8 @@ test('a rejected native share offers a second user action instead of opening a b
 });
 test('X copy attributes the reported loss and invites a first-interaction lookup',()=>{
   assert(data.text.includes('@LucaNetz'));assert(data.text.includes('@pudgypenguins'));assert(data.text.includes('@AbstractChain'));
-  assert(data.text.includes('Igloo reports an eight-figure loss.'));assert(data.text.endsWith('Our prime years cost more—and we can’t buy them back.'));
+  assert(data.text.endsWith('Our prime years > Igloo’s reported 8-figure loss.'));
   assert(data.text.includes('first day + days you gave'));assert(data.text.includes('https://abstract-accountability.vercel.app'));assert(!data.text.includes('hours worked'));
+  // X reserves 23 characters for the link; this copy also fits non-Premium posts.
+  assert(receiptShareText(999999,'https://abstract-accountability.vercel.app').replace(/https:\/\/\S+/g,'x'.repeat(23)).length<=280);
 });
