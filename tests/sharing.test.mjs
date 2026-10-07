@@ -1,23 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
 import {receiptShareText,shareReceipt} from '../worker/sharing.js';
 const file=new File(['PNG'],'abstract-time-receipt.png',{type:'image/png'});
 const data={file,text:receiptShareText(616,'https://abstract-accountability.vercel.app')};
-test('native sharing receives the PNG and copy during the click, without an intervening await',async()=>{
-  let called=false,payload;const capability={canShare:({files})=>files[0]===file,share:value=>{called=true;payload=value;return Promise.resolve();}};
-  const result=shareReceipt(data,capability,{download(){assert.fail()},openDraft(){assert.fail()}});
-  assert(called);assert.equal(payload.files[0].type,'image/png');assert.equal(payload.text,data.text);assert.equal(await result,'shared');
+test('X composer link preserves text and opens one isolated tab',()=>{
+  const source=readFileSync(new URL('../worker/index.js',import.meta.url),'utf8');
+  const fn=source.match(/function openTextDraft\(text\) \{[\s\S]*?\n\}/)[0];
+  const events=[],link={click(){events.push('click')},remove(){events.push('remove')}};
+  const document={createElement(tag){assert.equal(tag,'a');return link},body:{append(item){assert.equal(item,link);events.push('append')}}};
+  vm.runInNewContext(fn+'; openTextDraft(text);',{URL,URLSearchParams,document,text:data.text});
+  const draft=new URL(link.href);
+  assert.equal(draft.origin,'https://x.com');assert.equal(draft.pathname,'/intent/post');
+  assert.equal(draft.searchParams.get('text'),data.text);
+  assert.equal(link.target,'_blank');assert.equal(link.rel,'noopener noreferrer');
+  assert.deepEqual(events,['append','click','remove']);
 });
-test('desktop fallback downloads the PNG and opens only an editable text draft',async()=>{
-  const calls=[];assert.equal(await shareReceipt(data,{}, {download:f=>calls.push(f),openDraft:t=>calls.push(t)}),'downloaded');
-  assert.equal(calls[0],file);assert.equal(calls[1],data.text);
+test('Post on X opens the composer before downloading the PNG',async()=>{
+  const calls=[];assert.equal(await shareReceipt(data,{}, {download:f=>calls.push(['download',f]),openDraft:t=>calls.push(['open',t])}),'downloaded');
+  assert.deepEqual(calls,[['open',data.text],['download',file]]);
 });
-test('cancelling the share sheet does not open X, download, or publish anything',async()=>{
-  const capabilities={canShare:()=>true,share:async()=>{throw Object.assign(Error(),{name:'AbortError'})}};
-  assert.equal(await shareReceipt(data,capabilities,{download(){assert.fail()},openDraft(){assert.fail()}}),'cancelled');
-});
-test('a rejected native share offers a second user action instead of opening a blocked popup',async()=>{
-  assert.equal(await shareReceipt(data,{canShare:()=>true,share:async()=>{throw Error('Unsupported target')}},{download(){assert.fail()},openDraft(){assert.fail()}}),'failed');
+test('Post on X opens the composer even when PNG export is unavailable',async()=>{
+  const calls=[];assert.equal(await shareReceipt({text:data.text}, {}, {download(){assert.fail()},openDraft:t=>calls.push(t)}),'text-only');
+  assert.deepEqual(calls,[data.text]);
 });
 test('X copy attributes the reported loss and invites a first-interaction lookup',()=>{
   assert(data.text.includes('@LucaNetz'));assert(data.text.includes('@pudgypenguins'));assert(data.text.includes('@AbstractChain'));
