@@ -1,0 +1,5 @@
+import {mkdir,writeFile} from 'node:fs/promises';import {getDatabase} from '../lib/database.js';import {migrate} from './migrate.mjs';import app from '../worker/index.js';
+if(process.env.TURSO_DATABASE_URL){const db=getDatabase();await migrate(db);db.client.close();console.log('Cloud database migrations applied.');}else console.log('No database configured: receipt lookup and the sourced hub work; shared posting is disabled until Turso is connected.');
+await mkdir(new URL('../public/',import.meta.url),{recursive:true});await writeFile(new URL('../public/.gitkeep',import.meta.url),'');
+for(const path of ['/','/record','/community','/updates','/action','/evidence','/method','/moderate']){const r=await app.fetch(new Request('https://build-check.example'+path),{});if(r.status!==200)throw Error('Page failed: '+path);const html=await r.text();new Function(html.match(/<script>([\s\S]*?)<\/script>/)[1]);}
+console.log('All pages and browser scripts validated for Vercel.');
