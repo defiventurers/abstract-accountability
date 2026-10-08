@@ -1,5 +1,5 @@
 export function receiptShareText(days, url) {
-  return days.toLocaleString('en-US') + ' days since my first @AbstractChain TX.\nI no longer trust @LucaNetz or @pudgypenguins.\n\nNever bite a hand that feeds you.\n\nFind your first day + days you gave: ' + url + '\nOur prime years > Igloo’s reported 8-figure loss.';
+  return days.toLocaleString('en-US') + ' days since my first @AbstractChain TX.\nI no longer trust @LucaNetz or @pudgypenguins.\n\nNever bite a hand that feeds you.\n\nFind out your first txn & days commited to Abstract👇\n' + url + '\n\nOur prime years > Igloo’s reported 8-figure loss.';
 }
 export async function shareReceipt(data, capabilities, actions) {
   // X's public intent endpoint cannot receive a local file attachment. Open
