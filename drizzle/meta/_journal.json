@@ -15,6 +15,13 @@
       "when": 1791406968325,
       "tag": "0001_nifty_the_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791495064010,
+      "tag": "0002_lying_hammerhead",
+      "breakpoints": true
     }
   ]
 }

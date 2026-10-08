@@ -29,9 +29,11 @@ Without a database, the wallet lookup, card, curated record, and updates still w
 
 | Page | Experience |
 | --- | --- |
-| `/` | Choose dark or light, look up an AGW username or wallet, see a compact green first-interaction summary, download a PNG, and open X's composer. Browse the hub below. |
+| `/` | Choose dark or light, look up an AGW username or wallet, see a compact green first-interaction summary, download a PNG, and open X's composer. The count defaults to the wind-down notice; the lookup snapshot is selectable. Add a private story, export a self-contained receipt pack with optional local screenshots, or explicitly choose to publish. Returning browsers retain their theme. |
 | `/community` | Voluntarily add a verified wallet receipt to the shared days ledger, or vent on the wallet-free voice wall. Edit or remove personal entries with private access keys. |
-| `/record` | Read the sourced record for the wind-down, funding explanation, Phase 2/3 thesis, Quantum evidence gap, and XP terms. See published community submissions. |
+| `/answers` and `/answers/:id` | Follow permanent questions, inspect the response on record and unresolved parts, and contribute a source. Follows are local to the browser. |
+| `/exit` | Open the official migration information directory, dated terms references and a private checklist. No wallet connection or fund transfers. |
+| `/record` | Read the final-30-days timeline and the sourced record for the wind-down, funding explanation, Phase 2/3 thesis, Quantum evidence gap, and XP terms. See published community submissions. |
 | `/updates` | Follow topics on this browser, see new items since marking the feed read, and subscribe through RSS. |
 | `/evidence` | Submit a dated public statement for owner review. Pending submissions are not publicly listed. |
 | `/action` | Find ways to contribute and read Bearorca Maxpain’s linked organizing statement. |
@@ -62,18 +64,21 @@ Then run `npm run db:migrate` before `npm run dev`. Those commands load `.env.lo
 
 ## Keep the hub current
 
-- Edit curated updates, topics, and the six unanswered questions in `worker/hub.js`. Give new updates a unique ID, a dated source, and an accurate publication timestamp. Update `reviewedAt` when you review the record.
+- Edit curated updates, topics, and the seven Answer Watch questions and their response summaries, unresolved parts, source links and review timestamps in `worker/hub.js`. Give new updates a unique ID, a dated source, and an accurate publication timestamp. Update `reviewedAt` when you review the record.
+- Edit the dated milestones, exit directory and source links in `worker/product.js`. Evidence gaps must remain marked until primary statements are checked. Do not invent version differences or mark a question resolved without a sourced response.
 - Edit the curated statement cards in `SOURCES` inside `worker/index.js`. Preserve original source links and separate exact commitments from visions, allegations, and evidence gaps.
-- Review new submissions at `/moderate`. Open the source, check the date and precise wording, and add a public review note before publishing. Published submissions join `/record`, `/updates`, and `/feed.xml`.
+- Review new submissions at `/moderate`. Open the source, check the date and precise wording, and add a public review note before publishing. Published submissions join `/record`, `/updates`, and `/feed.xml`; a linked question also gets them on its Answer Watch page. Category labels describe how the submitter reads the source, not a legal or factual finding.
 - Accepted public-source hosts are listed in `sourceUrl()` in `worker/hub-api.js`. Extend that list deliberately when a new primary source is needed. The form never downloads submitted URLs.
 - The feed is curated plus reviewed submissions; it does not scrape X automatically. Topic follows and “read” state are stored on each browser, without an account or push notifications.
+- Voice reactions are idempotent per browser key, message and reaction type. They are rate limited; new keys can still come from the same human. “Helpful receipt” is a reader reaction, not a verification badge.
+- The returning-visitor brief combines reviewed updates with changes to followed questions. The feed is curated, not an automatic promise of real-time X monitoring.
 - Question support is one signal per browser key and question. It is **not** a count of unique humans. Neither it nor a public wallet establishes identity or wallet ownership.
 
 Published evidence corrections currently require an owner database update or a dated correction in the curated record. The review desk handles pending submissions and reported voices, not general case management.
 
 ## Data and moderation
 
-The shared ledger counts each voluntarily submitted wallet once. The server rechecks the transaction history before adding it and ignores caller-supplied day totals. Days are whole elapsed UTC days since the earliest verified indexed normal transaction; the hours conversion is **days × 24**. Incoming transfers and included failed transactions count. Older internal transactions, token transfers, or missing network history may exist.
+The shared ledger counts each voluntarily submitted wallet once. The server rechecks the transaction history before adding it and ignores caller-supplied day totals. Ledger days are whole elapsed UTC days from the earliest verified indexed normal transaction to the fixed wind-down notice (`NOTICE_AT`). Totals only change with additions, removals or visibility changes; the hours conversion is **days × 24**. Incoming transfers and included failed transactions count. Older internal transactions, token transfers, or missing network history may exist.
 
 Totals represent **combined wallet age**, not active work hours, distinct people, money lost, or a verified measure of time stolen. Wallet-free messages never add days. Hidden ledger entries are excluded from the displayed total.
 
@@ -101,6 +106,7 @@ These controls reduce risk; they do not guarantee that an app is impossible to e
 ## Project map and checks
 
 - `worker/index.js`: receipt lookup, share card, wallet ledger, page shell.
+- `worker/product.js`: timeline, Answer Watch pages, exit desk, returning-visitor brief and private receipt-pack export.
 - `worker/hub.js`: hub sections, curated updates, and browser interactions.
 - `worker/hub-api.js`: voice wall, evidence, question signals, moderation, RSS.
 - `worker/security.js`: request validation, rate limits, secret comparison, and security headers.
